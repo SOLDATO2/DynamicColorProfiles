@@ -9,4 +9,3 @@ Simply adjust the sliders to your desire, name your profile and click save. Use 
 Since DCP uses nvidias dlls to adjust the color settings, the sliders should also be 1:1 to the Nvidia's control panel sliders.
 
 <img width="475" height="626" alt="image" src="https://github.com/user-attachments/assets/f70d254b-b25f-4df8-999b-7da8ff56658a" />
-<img width="474" height="620" alt="image" src="https://github.com/user-attachments/assets/72d641e3-c72b-4a3d-91c3-747556839809" />
