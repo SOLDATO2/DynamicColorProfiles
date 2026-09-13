@@ -41,7 +41,7 @@ FetchContent_MakeAvailable(Slint)
 
 file(GLOB MODULE "src/*.ixx")
 
-add_executable(DynamicColorProfiles WIN32 main.cpp)
+add_executable(DynamicColorProfiles WIN32 main.cpp app.rc)
 
 target_sources(DynamicColorProfiles
         PRIVATE
