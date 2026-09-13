@@ -1,4 +1,4 @@
-﻿﻿module;
+﻿module;
 
 #include <algorithm>
 #include <cmath>
@@ -204,6 +204,35 @@ namespace dcp::nvidia {
 
             if (m_nvidiaApi)
                 FreeLibrary(m_nvidiaApi);
+        }
+
+        profile::ColorSettings settings() const {
+            return m_settings;
+        }
+
+        void applySettings(profile::ColorSettings settings) {
+            settings.brightness =
+                std::clamp(settings.brightness, 0, 100);
+
+            settings.contrast =
+                std::clamp(settings.contrast, 0, 100);
+
+            settings.gamma =
+                std::clamp(settings.gamma, 0.4, 2.8);
+
+            settings.vibrance =
+                std::clamp(settings.vibrance, 0, 100);
+
+            settings.hue =
+                ((settings.hue % 360) + 360) % 360;
+
+            m_settings.brightness = settings.brightness;
+            m_settings.contrast = settings.contrast;
+            m_settings.gamma = settings.gamma;
+            applyGammaCorrection();
+
+            setDigitalVibrance(settings.vibrance);
+            setHue(settings.hue);
         }
 
         void setDigitalVibrance(int percent) {

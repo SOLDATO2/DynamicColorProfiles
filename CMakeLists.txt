@@ -6,12 +6,64 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_CXX_SCAN_FOR_MODULES ON)
 
+include(FetchContent)
+
+#stripping down slint
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+set(DEFAULT_SLINT_EMBED_RESOURCES embed-files CACHE STRING "" FORCE)
+set(SLINT_FEATURE_ACCESSIBILITY OFF CACHE BOOL "" FORCE)
+set(SLINT_FEATURE_BACKEND_QT OFF CACHE BOOL "" FORCE)
+set(SLINT_FEATURE_BACKEND_WINIT ON CACHE BOOL "" FORCE)
+set(SLINT_FEATURE_GETTEXT OFF CACHE BOOL "" FORCE)
+set(SLINT_FEATURE_INTERPRETER OFF CACHE BOOL "" FORCE)
+set(SLINT_FEATURE_LIVE_PREVIEW OFF CACHE BOOL "" FORCE)
+set(SLINT_FEATURE_MCP OFF CACHE BOOL "" FORCE)
+set(SLINT_FEATURE_RENDERER_FEMTOVG OFF CACHE BOOL "" FORCE)
+set(SLINT_FEATURE_RENDERER_FEMTOVG_WGPU OFF CACHE BOOL "" FORCE)
+set(SLINT_FEATURE_RENDERER_SKIA OFF CACHE BOOL "" FORCE)
+set(SLINT_FEATURE_RENDERER_SKIA_OPENGL OFF CACHE BOOL "" FORCE)
+set(SLINT_FEATURE_RENDERER_SKIA_VULKAN OFF CACHE BOOL "" FORCE)
+set(SLINT_FEATURE_RENDERER_SOFTWARE ON CACHE BOOL "" FORCE)
+set(SLINT_FEATURE_SDF_FONTS OFF CACHE BOOL "" FORCE)
+set(SLINT_FEATURE_SOFTWARE_RENDERER_PATH OFF CACHE BOOL "" FORCE)
+set(SLINT_FEATURE_SYSTEM_TESTING OFF CACHE BOOL "" FORCE)
+set(SLINT_FEATURE_TESTING OFF CACHE BOOL "" FORCE)
+set(SLINT_LIBRARY_CARGO_FLAGS "--features=system-tray" CACHE STRING "" FORCE)
+
+FetchContent_Declare(
+        Slint
+        GIT_REPOSITORY https://github.com/slint-ui/slint.git
+        GIT_TAG v1.17.1
+        SOURCE_SUBDIR api/cpp
+)
+FetchContent_MakeAvailable(Slint)
+
+
 file(GLOB MODULE "src/*.ixx")
 
-add_executable(DynamicColorProfiles main.cpp)
+add_executable(DynamicColorProfiles WIN32 main.cpp)
 
 target_sources(DynamicColorProfiles
         PRIVATE
         FILE_SET CXX_MODULES FILES
         ${MODULE}
+        ui.ixx
+)
+
+slint_target_sources(DynamicColorProfiles ui.slint NAMESPACE dcp_slint)
+
+set_property(
+        TARGET DynamicColorProfiles
+        PROPERTY SLINT_EMBED_RESOURCES embed-files
+)
+
+target_link_options(DynamicColorProfiles
+        PRIVATE
+        $<$<CXX_COMPILER_ID:MSVC>:/ENTRY:mainCRTStartup>
+)
+
+target_link_libraries(DynamicColorProfiles
+        PRIVATE
+        Slint::Slint
+        Imm32
 )
