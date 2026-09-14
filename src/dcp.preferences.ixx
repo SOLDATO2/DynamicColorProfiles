@@ -15,14 +15,14 @@ import dcp.profile;
 
 export namespace dcp::preferences {
     enum class CloseAction {
-        MinimizeToTaskbar,
+        KeepRunningInTray,
         Quit
     };
 
     struct AppPreferences
     {
         bool openOnStartup = false;
-        CloseAction closeAction = CloseAction::MinimizeToTaskbar;
+        CloseAction closeAction = CloseAction::KeepRunningInTray;
         bool applyProfileOnExit = false;
         std::string exitProfileName = dcp::profile::Loader::defaultProfileName();
         std::string lastProfileName = dcp::profile::Loader::defaultProfileName();
@@ -104,8 +104,10 @@ namespace {
         if (normalized == "quit")
             return dcp::preferences::CloseAction::Quit;
 
-        if (normalized == "minimize_to_taskbar")
-            return dcp::preferences::CloseAction::MinimizeToTaskbar;
+        if (normalized == "keep_running_in_tray" ||
+            normalized == "minimize_to_taskbar") {
+            return dcp::preferences::CloseAction::KeepRunningInTray;
+        }
 
         return std::nullopt;
     }
@@ -120,7 +122,7 @@ namespace {
         if (action == dcp::preferences::CloseAction::Quit)
             return "quit";
 
-        return "minimize_to_taskbar";
+        return "keep_running_in_tray";
     }
 }
 

@@ -145,8 +145,7 @@ namespace {
                     return slint::CloseRequestResponse::HideWindow;
                 }
 
-                m_window->window().set_minimized(true);
-                return slint::CloseRequestResponse::KeepWindowShown;
+                return slint::CloseRequestResponse::HideWindow;
             });
 
             m_window->on_save_profile([this](const slint::SharedString& name) {
@@ -274,7 +273,7 @@ namespace {
 
             m_window->set_open_on_startup(m_preferences.openOnStartup);
             m_window->set_close_quit(closeQuits);
-            m_window->set_close_minimize_to_taskbar(!closeQuits);
+            m_window->set_close_keep_running_in_tray(!closeQuits);
             m_window->set_apply_exit_profile(
                 m_preferences.applyProfileOnExit);
             m_window->set_exit_profile_index(
@@ -408,7 +407,7 @@ namespace {
             m_preferences.closeAction =
                 action == CLOSE_ACTION_QUIT
                     ? dcp::preferences::CloseAction::Quit
-                    : dcp::preferences::CloseAction::MinimizeToTaskbar;
+                    : dcp::preferences::CloseAction::KeepRunningInTray;
 
             savePreferences();
             syncPreferencesToUi();

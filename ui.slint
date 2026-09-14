@@ -75,7 +75,7 @@ export component AppWindow inherits Window {
     in-out property <string> vibrance-text: "50";
     in-out property <string> hue-text: "0";
     in-out property <bool> open-on-startup: false;
-    in-out property <bool> close-minimize-to-taskbar: true;
+    in-out property <bool> close-keep-running-in-tray: true;
     in-out property <bool> close-quit: false;
     in-out property <bool> apply-exit-profile: false;
     in-out property <int> exit-profile-index: 0;
@@ -259,11 +259,11 @@ export component AppWindow inherits Window {
                             spacing: 8px;
 
                             CheckBox {
-                                text: "Minimize to Taskbar";
-                                checked <=> root.close-minimize-to-taskbar;
+                                text: "Keep running in tray";
+                                checked <=> root.close-keep-running-in-tray;
 
                                 toggled => {
-                                    root.close-minimize-to-taskbar = true;
+                                    root.close-keep-running-in-tray = true;
                                     root.close-quit = false;
                                     root.close-action-changed(0);
                                 }
@@ -275,7 +275,7 @@ export component AppWindow inherits Window {
 
                                 toggled => {
                                     root.close-quit = true;
-                                    root.close-minimize-to-taskbar = false;
+                                    root.close-keep-running-in-tray = false;
                                     root.close-action-changed(1);
                                 }
                             }
