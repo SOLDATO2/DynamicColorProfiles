@@ -14,7 +14,9 @@ module;
 export module ui;
 
 import dcp.nvidia;
+import dcp.preferences;
 import dcp.profile;
+import dcp.windows;
 
 export namespace dcp::ui {
     int run();
@@ -25,6 +27,8 @@ namespace {
     using dcp_slint::AppWindow;
 
     constexpr int SUCCESS = 0;
+    constexpr int CLOSE_ACTION_QUIT = 1;
+
     std::string toStdString(const slint::SharedString& value)
     {
         return std::string(std::string_view(value));
@@ -32,7 +36,7 @@ namespace {
 
     slint::SharedString toSharedString(const std::string& value)
     {
-        return slint::SharedString(std::string_view(value));
+        return {std::string_view(value)};
     }
 
     slint::SharedString intText(int value)
@@ -57,7 +61,33 @@ namespace {
             output << '0';
 
         output << decimals;
-        return slint::SharedString(output.str());
+        return {output.str()};
+    }
+
+    int profileIndex(
+        const std::vector<std::string>& profiles,
+        std::string_view selectedProfile)
+    {
+        for (std::size_t i = 0; i < profiles.size(); i++) {
+            if (profiles[i] == selectedProfile)
+                return static_cast<int>(i);
+        }
+
+        return -1;
+    }
+
+    std::string availableProfileOrDefault(std::string_view profileName)
+    {
+        const std::vector<std::string> profiles =
+            dcp::profile::Loader::listProfiles();
+
+        const int index =
+            profileIndex(profiles, profileName);
+
+        if (index >= 0)
+            return profiles[static_cast<std::size_t>(index)];
+
+        return dcp::profile::Loader::defaultProfileName();
     }
 
     class App {
@@ -66,13 +96,21 @@ namespace {
             : m_window(AppWindow::create()),
               m_tray(AppTray::create())
         {
+            m_preferences =
+                dcp::preferences::load();
+            m_preferences.openOnStartup =
+                dcp::windows::isRunAtStartupEnabled();
+            m_preferences.lastProfileName =
+                availableProfileOrDefault(m_preferences.lastProfileName);
+            m_preferences.exitProfileName =
+                availableProfileOrDefault(m_preferences.exitProfileName);
+
             setDefaultProfileName();
             connectCallbacks();
-            refreshProfiles(dcp::profile::Loader::defaultProfileName());
-            m_window->set_profile_name(
-                toSharedString(dcp::profile::Loader::defaultProfileName()));
-            m_settings = m_dcp.settings();
-            syncSettingsToUi();
+
+            loadProfile(m_preferences.lastProfileName, false);
+            syncPreferencesToUi();
+            savePreferences();
         }
 
         int run()
@@ -89,28 +127,29 @@ namespace {
         slint::ComponentHandle<AppTray> m_tray;
         std::shared_ptr<slint::VectorModel<slint::SharedString>> m_profileModel =
             std::make_shared<slint::VectorModel<slint::SharedString>>();
+        std::vector<std::string> m_profiles;
+        dcp::preferences::AppPreferences m_preferences;
         dcp::nvidia::DCP m_dcp;
         dcp::profile::ColorSettings m_settings;
+        bool m_quitting = false;
 
         void connectCallbacks()
         {
             auto windowWeak =
                 slint::ComponentWeakHandle(m_window);
 
-            m_window->window().on_close_requested([] {
-                return slint::CloseRequestResponse::HideWindow;
+            m_window->window().on_close_requested([this] {
+                if (m_preferences.closeAction ==
+                    dcp::preferences::CloseAction::Quit) {
+                    requestQuit();
+                    return slint::CloseRequestResponse::HideWindow;
+                }
+
+                m_window->window().set_minimized(true);
+                return slint::CloseRequestResponse::KeepWindowShown;
             });
 
-            /*m_window->on_hide_to_tray([windowWeak] {
-                if (auto window = windowWeak.lock())
-                    (*window)->hide();
-            });*/
-
-            /*m_window->on_exit_requested([] {
-                slint::quit_event_loop();
-            });*/
-
-            m_window->on_save_profile([this](slint::SharedString name) {
+            m_window->on_save_profile([this](const slint::SharedString& name) {
                 saveCurrentProfile(toStdString(name));
             });
 
@@ -118,7 +157,7 @@ namespace {
                 resetToDefault();
             });
 
-            m_window->on_profile_selected([this](slint::SharedString name) {
+            m_window->on_profile_selected([this](const slint::SharedString& name) {
                 loadProfile(toStdString(name));
             });
 
@@ -142,17 +181,36 @@ namespace {
                 setHue(static_cast<int>(std::lround(value)));
             });
 
-            m_tray->on_show_window([windowWeak] {
-                if (auto window = windowWeak.lock())
-                    (*window)->show();
+            m_window->on_open_on_startup_changed([this](bool enabled) {
+                setOpenOnStartup(enabled);
             });
 
-            m_tray->on_load_profile([this](slint::SharedString name) {
+            m_window->on_close_action_changed([this](int action) {
+                setCloseAction(action);
+            });
+
+            m_window->on_apply_exit_profile_changed([this](bool enabled) {
+                setApplyProfileOnExit(enabled);
+            });
+
+            m_window->on_exit_profile_selected(
+                [this](const slint::SharedString& name) {
+                    setExitProfile(toStdString(name));
+                });
+
+            m_tray->on_show_window([windowWeak] {
+                if (auto window = windowWeak.lock()) {
+                    (*window)->show();
+                    (*window)->window().set_minimized(false);
+                }
+            });
+
+            m_tray->on_load_profile([this](const slint::SharedString& name) {
                 loadProfile(toStdString(name));
             });
 
-            m_tray->on_quit_requested([] {
-                slint::quit_event_loop();
+            m_tray->on_quit_requested([this] {
+                requestQuit();
             });
         }
 
@@ -164,20 +222,17 @@ namespace {
 
         void refreshProfiles(std::string_view selectedProfile)
         {
-            const std::vector<std::string> profiles =
+            m_profiles =
                 dcp::profile::Loader::listProfiles();
 
             std::vector<slint::SharedString> items;
-            items.reserve(profiles.size());
+            items.reserve(m_profiles.size());
 
-            int selectedIndex = -1;
+            const int selectedIndex =
+                profileIndex(m_profiles, selectedProfile);
 
-            for (std::size_t i = 0; i < profiles.size(); i++) {
-                if (profiles[i] == selectedProfile)
-                    selectedIndex = static_cast<int>(i);
-
-                items.emplace_back(profiles[i]);
-            }
+            for (const std::string& profile : m_profiles)
+                items.emplace_back(profile);
 
             m_profileModel =
                 std::make_shared<slint::VectorModel<slint::SharedString>>(
@@ -186,6 +241,13 @@ namespace {
             m_window->set_profiles(m_profileModel);
             m_window->set_selected_profile(selectedIndex);
             m_tray->set_profiles(m_profileModel);
+
+            if (profileIndex(m_profiles, m_preferences.exitProfileName) < 0)
+                m_preferences.exitProfileName =
+                    dcp::profile::Loader::defaultProfileName();
+
+            m_window->set_exit_profile_index(
+                profileIndex(m_profiles, m_preferences.exitProfileName));
         }
 
         void syncSettingsToUi()
@@ -202,6 +264,26 @@ namespace {
                 static_cast<float>(m_settings.hue));
 
             updateValueLabels();
+        }
+
+        void syncPreferencesToUi()
+        {
+            const bool closeQuits =
+                m_preferences.closeAction ==
+                dcp::preferences::CloseAction::Quit;
+
+            m_window->set_open_on_startup(m_preferences.openOnStartup);
+            m_window->set_close_quit(closeQuits);
+            m_window->set_close_minimize_to_taskbar(!closeQuits);
+            m_window->set_apply_exit_profile(
+                m_preferences.applyProfileOnExit);
+            m_window->set_exit_profile_index(
+                profileIndex(m_profiles, m_preferences.exitProfileName));
+        }
+
+        void savePreferences()
+        {
+            dcp::preferences::save(m_preferences);
         }
 
         void updateValueLabels()
@@ -272,23 +354,100 @@ namespace {
 
         void saveCurrentProfile(const std::string& profileName)
         {
-            refreshProfiles(profileName);
-            m_window->set_profile_name(toSharedString(profileName));
-        }
-
-        void loadProfile(const std::string& profileName)
-        {
-            if (profileName.empty())
+            if (!dcp::profile::Loader::saveSettings(profileName, m_settings))
                 return;
 
-            const std::optional<dcp::profile::ColorSettings> settings =
-                dcp::profile::Loader::loadLatestSettings(profileName);
+            loadProfile(profileName);
+        }
 
-            m_dcp.applySettings(*settings);
+        bool loadProfile(
+            const std::string& requestedProfileName,
+            bool remember = true)
+        {
+            if (requestedProfileName.empty())
+                return false;
+
+            const std::optional<dcp::profile::Profile> profile =
+                dcp::profile::Loader::loadProfile(requestedProfileName);
+
+            if (!profile || profile->settings.empty())
+                return false;
+
+            const dcp::profile::ColorSettings settings =
+                profile->settings.back();
+
+            m_dcp.applySettings(settings);
             m_settings = m_dcp.settings();
-            m_window->set_profile_name(toSharedString(profileName));
-            refreshProfiles(profileName);
+            m_window->set_profile_name(toSharedString(profile->name));
+            refreshProfiles(profile->name);
             syncSettingsToUi();
+
+            if (remember) {
+                m_preferences.lastProfileName = profile->name;
+                savePreferences();
+            }
+
+            syncPreferencesToUi();
+            return true;
+        }
+
+        void setOpenOnStartup(bool enabled)
+        {
+            if (dcp::windows::setRunAtStartup(enabled))
+                m_preferences.openOnStartup = enabled;
+            else
+                m_preferences.openOnStartup =
+                    dcp::windows::isRunAtStartupEnabled();
+
+            savePreferences();
+            syncPreferencesToUi();
+        }
+
+        void setCloseAction(int action)
+        {
+            m_preferences.closeAction =
+                action == CLOSE_ACTION_QUIT
+                    ? dcp::preferences::CloseAction::Quit
+                    : dcp::preferences::CloseAction::MinimizeToTaskbar;
+
+            savePreferences();
+            syncPreferencesToUi();
+        }
+
+        void setApplyProfileOnExit(bool enabled)
+        {
+            m_preferences.applyProfileOnExit = enabled;
+
+            savePreferences();
+            syncPreferencesToUi();
+        }
+
+        void setExitProfile(const std::string& profileName)
+        {
+            const std::optional<dcp::profile::Profile> profile =
+                dcp::profile::Loader::loadProfile(profileName);
+
+            if (!profile)
+                return;
+
+            m_preferences.exitProfileName = profile->name;
+
+            savePreferences();
+            syncPreferencesToUi();
+        }
+
+        void requestQuit()
+        {
+            if (m_quitting)
+                return;
+
+            m_quitting = true;
+
+            if (m_preferences.applyProfileOnExit)
+                loadProfile(m_preferences.exitProfileName, false);
+
+            savePreferences();
+            slint::quit_event_loop();
         }
 
     };
@@ -296,6 +455,9 @@ namespace {
 
 int dcp::ui::run()
 {
+    if (!dcp::windows::acquireSingleInstance())
+        return SUCCESS;
+
     App app;
     return app.run();
 }

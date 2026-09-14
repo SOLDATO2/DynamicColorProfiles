@@ -65,5 +65,6 @@ target_link_options(DynamicColorProfiles
 target_link_libraries(DynamicColorProfiles
         PRIVATE
         Slint::Slint
+        Advapi32
         Imm32
 )

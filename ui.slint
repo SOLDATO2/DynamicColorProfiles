@@ -1,4 +1,14 @@
-import { Button, ComboBox, GroupBox, HorizontalBox, LineEdit, Slider, VerticalBox } from "std-widgets.slint";
+import {
+    Button,
+    CheckBox,
+    ComboBox,
+    GroupBox,
+    HorizontalBox,
+    LineEdit,
+    Slider,
+    TabWidget,
+    VerticalBox
+} from "std-widgets.slint";
 
 component SettingRow inherits HorizontalBox {
     in property <string> label;
@@ -64,6 +74,12 @@ export component AppWindow inherits Window {
     in-out property <string> gamma-text: "1.00";
     in-out property <string> vibrance-text: "50";
     in-out property <string> hue-text: "0";
+    in-out property <bool> open-on-startup: false;
+    in-out property <bool> close-minimize-to-taskbar: true;
+    in-out property <bool> close-quit: false;
+    in-out property <bool> apply-exit-profile: false;
+    in-out property <int> exit-profile-index: 0;
+
     callback save-profile(string);
     callback reset-settings();
     callback profile-selected(string);
@@ -72,8 +88,10 @@ export component AppWindow inherits Window {
     callback gamma-changed(float);
     callback vibrance-changed(float);
     callback hue-changed(float);
-    //callback hide-to-tray();
-    //callback exit-requested();
+    callback open-on-startup-changed(bool);
+    callback close-action-changed(int);
+    callback apply-exit-profile-changed(bool);
+    callback exit-profile-selected(string);
 
     VerticalBox {
         padding: 16px;
@@ -85,124 +103,216 @@ export component AppWindow inherits Window {
             vertical-stretch: 0;
         }
 
-        GroupBox {
-            title: "Profile";
-            vertical-stretch: 0;
-
-            VerticalBox {
-                spacing: 8px;
-
-                HorizontalBox {
-                    spacing: 8px;
-
-                    LineEdit {
-                        text <=> root.profile-name;
-                        placeholder-text: "Profile name";
-                        horizontal-stretch: 1;
-
-                        accepted(text) => {
-                            root.save-profile(text);
-                        }
-                    }
-
-                    Button {
-                        text: "Save";
-                        enabled: root.profile-name != ""
-                            && root.profile-name != root.default-profile-name;
-
-                        clicked => {
-                            root.save-profile(root.profile-name);
-                        }
-                    }
-                }
-
-                ComboBox {
-                    model: root.profiles;
-                    current-index <=> root.selected-profile;
-                    enabled: root.profiles.length > 0;
-                    horizontal-stretch: 1;
-
-                    selected => {
-                        root.profile-name = self.current-value;
-                        root.profile-selected(self.current-value);
-                    }
-                }
-            }
-        }
-
-        GroupBox {
-            title: "Adjustments";
+        TabWidget {
             vertical-stretch: 1;
+            horizontal-stretch: 1;
 
-            VerticalBox {
-                spacing: 10px;
+            Tab {
+                title: "Profiles";
 
-                SettingRow {
-                    label: "Brightness";
-                    minimum: 0;
-                    maximum: 100;
-                    value <=> root.brightness;
-                    value-text: root.brightness-text;
-                    changed(value) => { root.brightness-changed(value); }
-                }
+                VerticalBox {
+                    spacing: 12px;
 
-                SettingRow {
-                    label: "Contrast";
-                    minimum: 0;
-                    maximum: 100;
-                    value <=> root.contrast;
-                    value-text: root.contrast-text;
-                    changed(value) => { root.contrast-changed(value); }
-                }
+                    GroupBox {
+                        title: "Profile";
+                        vertical-stretch: 0;
 
-                SettingRow {
-                    label: "Gamma";
-                    minimum: 0.4;
-                    maximum: 2.8;
-                    step: 0.01;
-                    value <=> root.gamma;
-                    value-text: root.gamma-text;
-                    changed(value) => { root.gamma-changed(value); }
-                }
+                        VerticalBox {
+                            spacing: 8px;
 
-                SettingRow {
-                    label: "Digital Vibrance";
-                    minimum: 0;
-                    maximum: 100;
-                    value <=> root.vibrance;
-                    value-text: root.vibrance-text;
-                    changed(value) => { root.vibrance-changed(value); }
-                }
+                            HorizontalBox {
+                                spacing: 8px;
 
-                SettingRow {
-                    label: "Hue";
-                    minimum: 0;
-                    maximum: 359;
-                    value <=> root.hue;
-                    value-text: root.hue-text;
-                    changed(value) => { root.hue-changed(value); }
-                }
+                                LineEdit {
+                                    text <=> root.profile-name;
+                                    placeholder-text: "Profile name";
+                                    horizontal-stretch: 1;
 
-                HorizontalBox {
-                    alignment: end;
-                    vertical-stretch: 0;
+                                    accepted(text) => {
+                                        root.save-profile(text);
+                                    }
+                                }
 
-                    Button {
-                        text: "Reset";
-                        clicked => {
-                            root.reset-settings();
+                                Button {
+                                    text: "Save";
+                                    enabled: root.profile-name != ""
+                                        && root.profile-name != root.default-profile-name;
+
+                                    clicked => {
+                                        root.save-profile(root.profile-name);
+                                    }
+                                }
+                            }
+
+                            ComboBox {
+                                model: root.profiles;
+                                current-index <=> root.selected-profile;
+                                enabled: root.profiles.length > 0;
+                                horizontal-stretch: 1;
+
+                                selected => {
+                                    root.profile-name = self.current-value;
+                                    root.profile-selected(self.current-value);
+                                }
+                            }
+                        }
+                    }
+
+                    GroupBox {
+                        title: "Adjustments";
+                        vertical-stretch: 1;
+
+                        VerticalBox {
+                            spacing: 10px;
+
+                            SettingRow {
+                                label: "Brightness";
+                                minimum: 0;
+                                maximum: 100;
+                                value <=> root.brightness;
+                                value-text: root.brightness-text;
+                                changed(value) => { root.brightness-changed(value); }
+                            }
+
+                            SettingRow {
+                                label: "Contrast";
+                                minimum: 0;
+                                maximum: 100;
+                                value <=> root.contrast;
+                                value-text: root.contrast-text;
+                                changed(value) => { root.contrast-changed(value); }
+                            }
+
+                            SettingRow {
+                                label: "Gamma";
+                                minimum: 0.4;
+                                maximum: 2.8;
+                                step: 0.01;
+                                value <=> root.gamma;
+                                value-text: root.gamma-text;
+                                changed(value) => { root.gamma-changed(value); }
+                            }
+
+                            SettingRow {
+                                label: "Digital Vibrance";
+                                minimum: 0;
+                                maximum: 100;
+                                value <=> root.vibrance;
+                                value-text: root.vibrance-text;
+                                changed(value) => { root.vibrance-changed(value); }
+                            }
+
+                            SettingRow {
+                                label: "Hue";
+                                minimum: 0;
+                                maximum: 359;
+                                value <=> root.hue;
+                                value-text: root.hue-text;
+                                changed(value) => { root.hue-changed(value); }
+                            }
+
+                            HorizontalBox {
+                                alignment: end;
+                                vertical-stretch: 0;
+
+                                Button {
+                                    text: "Reset";
+                                    clicked => {
+                                        root.reset-settings();
+                                    }
+                                }
+                            }
                         }
                     }
                 }
             }
-        }
 
-        HorizontalBox {
-            alignment: end;
-            spacing: 8px;
-            vertical-stretch: 0;
+            Tab {
+                title: "Settings";
 
+                VerticalBox {
+                    spacing: 12px;
 
+                    GroupBox {
+                        title: "Startup";
+                        vertical-stretch: 0;
+
+                        VerticalBox {
+                            spacing: 8px;
+
+                            CheckBox {
+                                text: "Open the app on startup";
+                                checked <=> root.open-on-startup;
+
+                                toggled => {
+                                    root.open-on-startup-changed(self.checked);
+                                }
+                            }
+                        }
+                    }
+
+                    GroupBox {
+                        title: "When closing window";
+                        vertical-stretch: 0;
+
+                        VerticalBox {
+                            spacing: 8px;
+
+                            CheckBox {
+                                text: "Minimize to Taskbar";
+                                checked <=> root.close-minimize-to-taskbar;
+
+                                toggled => {
+                                    root.close-minimize-to-taskbar = true;
+                                    root.close-quit = false;
+                                    root.close-action-changed(0);
+                                }
+                            }
+
+                            CheckBox {
+                                text: "Quit";
+                                checked <=> root.close-quit;
+
+                                toggled => {
+                                    root.close-quit = true;
+                                    root.close-minimize-to-taskbar = false;
+                                    root.close-action-changed(1);
+                                }
+                            }
+                        }
+                    }
+
+                    GroupBox {
+                        title: "Exit profile";
+                        vertical-stretch: 0;
+
+                        VerticalBox {
+                            spacing: 8px;
+
+                            CheckBox {
+                                text: "Load selected profile on exit";
+                                checked <=> root.apply-exit-profile;
+
+                                toggled => {
+                                    root.apply-exit-profile-changed(self.checked);
+                                }
+                            }
+
+                            ComboBox {
+                                model: root.profiles;
+                                current-index <=> root.exit-profile-index;
+                                enabled: root.apply-exit-profile
+                                    && root.profiles.length > 0;
+                                horizontal-stretch: 1;
+
+                                selected => {
+                                    root.exit-profile-selected(self.current-value);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
