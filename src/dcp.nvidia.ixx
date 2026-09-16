@@ -5,9 +5,11 @@
 #include <cstdint>
 #include <stdexcept>
 #include <string>
+#include <variant>
 #include <Windows.h>
 
 export module dcp.nvidia;
+import dcp;
 import dcp.profile;
 
 namespace dcp::nvidia {
@@ -142,10 +144,11 @@ namespace dcp::nvidia {
     //settings, default
 
     //main class
-    export class DCP {
+    export class DCP final : public ::dcp::DCP {
         HMODULE m_nvidiaApi = nullptr;
+        bool m_initialized = false;
 
-        profile::ColorSettings m_settings{50, 50, 1.0, 50, 0};
+        profile::NvidiaColorSettings m_settings{50, 50, 1.0, 50, 0};
         Display m_display;
 
         //QueryInterface
@@ -173,66 +176,128 @@ namespace dcp::nvidia {
             if (!m_nvidiaApi)
                 throw std::runtime_error("Could not load nvapi64.dll");
 
-            m_queryInterface = reinterpret_cast<QueryInterfaceFn>(
-                GetProcAddress(m_nvidiaApi, "nvapi_QueryInterface"));
+            try {
+                m_queryInterface = reinterpret_cast<QueryInterfaceFn>(
+                    GetProcAddress(m_nvidiaApi, "nvapi_QueryInterface"));
 
-            if (!m_queryInterface)
-                throw std::runtime_error("nvapi_QueryInterface not found");
+                if (!m_queryInterface)
+                    throw std::runtime_error("nvapi_QueryInterface not found");
 
-            m_initialize = resolve<InitializeFn>(NVAPI_INITIALIZE);
-            m_unload = resolve<UnloadFn>(NVAPI_UNLOAD);
-            m_enumDisplay = resolve<EnumDisplayFn>(NVAPI_ENUM_NVIDIA_DISPLAY_HANDLE);
-            m_getAssociatedDisplayName = resolve<GetAssociatedDisplayNameFn>(NVAPI_GET_ASSOCIATED_DISPLAY_NAME);
-            m_getDisplayIdByName = resolve<GetDisplayIdByNameFn>(NVAPI_GET_DISPLAY_ID_BY_NAME);
-            m_setTargetGammaCorrectionFn = resolve<SetTargetGammaCorrectionFn>(NVAPI_DISP_SET_TARGET_GAMMA_CORRECTION);
-            m_getDigitalVibranceControlInfoEx = resolve<GetDigitalVibranceControlInfoExFn>(NVAPI_GET_DIGITAL_VIBRANCE_CONTROL_INFO_EX);
-            m_setDigitalVibranceControlLevelEx = resolve<SetDigitalVibranceControlLevelExFn>(NVAPI_SET_DIGITAL_VIBRANCE_CONTROL_LEVEL_EX);
-            m_getHueInfo = resolve<GetHueInfoFn>(NVAPI_GET_HUE_INFO);
-            m_setHueAngle = resolve<SetHueAngleFn>(NVAPI_SET_HUE_ANGLE);
+                m_initialize = resolve<InitializeFn>(NVAPI_INITIALIZE);
+                m_unload = resolve<UnloadFn>(NVAPI_UNLOAD);
+                m_enumDisplay = resolve<EnumDisplayFn>(NVAPI_ENUM_NVIDIA_DISPLAY_HANDLE);
+                m_getAssociatedDisplayName = resolve<GetAssociatedDisplayNameFn>(NVAPI_GET_ASSOCIATED_DISPLAY_NAME);
+                m_getDisplayIdByName = resolve<GetDisplayIdByNameFn>(NVAPI_GET_DISPLAY_ID_BY_NAME);
+                m_setTargetGammaCorrectionFn = resolve<SetTargetGammaCorrectionFn>(NVAPI_DISP_SET_TARGET_GAMMA_CORRECTION);
+                m_getDigitalVibranceControlInfoEx = resolve<GetDigitalVibranceControlInfoExFn>(NVAPI_GET_DIGITAL_VIBRANCE_CONTROL_INFO_EX);
+                m_setDigitalVibranceControlLevelEx = resolve<SetDigitalVibranceControlLevelExFn>(NVAPI_SET_DIGITAL_VIBRANCE_CONTROL_LEVEL_EX);
+                m_getHueInfo = resolve<GetHueInfoFn>(NVAPI_GET_HUE_INFO);
+                m_setHueAngle = resolve<SetHueAngleFn>(NVAPI_SET_HUE_ANGLE);
 
-            const NvStatus status = m_initialize();
+                const NvStatus status = m_initialize();
 
-            if (status != NVAPI_OK)
-                throw std::runtime_error("NvAPI_Initialize failed: " + std::to_string(status));
+                if (status != NVAPI_OK)
+                    throw std::runtime_error("NvAPI_Initialize failed: " + std::to_string(status));
 
-            m_display = getDisplay();
+                m_initialized = true;
+                m_display = getDisplay();
+            } catch (...) {
+                cleanup();
+                throw;
+            }
         }
 
-        ~DCP() {
-            if (m_unload)
-                m_unload();
-
-            if (m_nvidiaApi)
-                FreeLibrary(m_nvidiaApi);
+        ~DCP() override {
+            cleanup();
         }
 
-        profile::ColorSettings settings() const {
+        DCP(const DCP&) = delete;
+        DCP& operator=(const DCP&) = delete;
+
+        [[nodiscard]] ::dcp::Backend backend() const noexcept override {
+            return ::dcp::Backend::Nvidia;
+        }
+
+        [[nodiscard]] ::dcp::Settings settings() const override {
             return m_settings;
         }
 
-        void applySettings(profile::ColorSettings settings) {
-            settings.brightness =
-                std::clamp(settings.brightness, 0, 100);
+        [[nodiscard]] bool supports(::dcp::Setting setting) const noexcept override {
+            switch (setting) {
+                case ::dcp::Setting::NvidiaBrightness:
+                case ::dcp::Setting::NvidiaContrast:
+                case ::dcp::Setting::NvidiaGamma:
+                case ::dcp::Setting::NvidiaVibrance:
+                case ::dcp::Setting::NvidiaHue:
+                    return true;
+                case ::dcp::Setting::AmdBrightness:
+                case ::dcp::Setting::AmdContrast:
+                case ::dcp::Setting::AmdHue:
+                case ::dcp::Setting::AmdSaturation:
+                    return false;
+            }
 
-            settings.contrast =
-                std::clamp(settings.contrast, 0, 100);
+            return false;
+        }
 
-            settings.gamma =
-                std::clamp(settings.gamma, 0.4, 2.8);
+        void applySettings(const ::dcp::Settings& settings) override {
+            const auto* nvidiaSettings =
+                std::get_if<profile::NvidiaColorSettings>(&settings);
 
-            settings.vibrance =
-                std::clamp(settings.vibrance, 0, 100);
+            if (!nvidiaSettings)
+                throw std::invalid_argument("Invalid settings for NVIDIA backend");
 
-            settings.hue =
-                ((settings.hue % 360) + 360) % 360;
+            profile::NvidiaColorSettings normalizedSettings = *nvidiaSettings;
 
-            m_settings.brightness = settings.brightness;
-            m_settings.contrast = settings.contrast;
-            m_settings.gamma = settings.gamma;
+            normalizedSettings.brightness =
+                std::clamp(normalizedSettings.brightness, 0, 100);
+
+            normalizedSettings.contrast =
+                std::clamp(normalizedSettings.contrast, 0, 100);
+
+            normalizedSettings.gamma =
+                std::clamp(normalizedSettings.gamma, 0.4, 2.8);
+
+            normalizedSettings.vibrance =
+                std::clamp(normalizedSettings.vibrance, 0, 100);
+
+            normalizedSettings.hue =
+                ((normalizedSettings.hue % 360) + 360) % 360;
+
+            m_settings.brightness = normalizedSettings.brightness;
+            m_settings.contrast = normalizedSettings.contrast;
+            m_settings.gamma = normalizedSettings.gamma;
             applyGammaCorrection();
 
-            setDigitalVibrance(settings.vibrance);
-            setHue(settings.hue);
+            setDigitalVibrance(normalizedSettings.vibrance);
+            setHue(normalizedSettings.hue);
+        }
+
+        void set(::dcp::Setting setting, double value) override {
+            switch (setting) {
+                case ::dcp::Setting::NvidiaBrightness:
+                    setBrightness(static_cast<int>(std::lround(value)));
+                    return;
+                case ::dcp::Setting::NvidiaContrast:
+                    setContrast(static_cast<int>(std::lround(value)));
+                    return;
+                case ::dcp::Setting::NvidiaGamma:
+                    setGamma(value);
+                    return;
+                case ::dcp::Setting::NvidiaVibrance:
+                    setDigitalVibrance(static_cast<int>(std::lround(value)));
+                    return;
+                case ::dcp::Setting::NvidiaHue:
+                    setHue(static_cast<int>(std::lround(value)));
+                    return;
+                case ::dcp::Setting::AmdBrightness:
+                case ::dcp::Setting::AmdContrast:
+                case ::dcp::Setting::AmdHue:
+                case ::dcp::Setting::AmdSaturation:
+                    break;
+            }
+
+            throw std::invalid_argument("Setting is not supported by NVIDIA backend");
         }
 
         void setDigitalVibrance(int percent) {
@@ -290,6 +355,18 @@ namespace dcp::nvidia {
         }
 
     private:
+        void cleanup() noexcept {
+            if (m_initialized && m_unload)
+                m_unload();
+
+            m_initialized = false;
+
+            if (m_nvidiaApi)
+                FreeLibrary(m_nvidiaApi);
+
+            m_nvidiaApi = nullptr;
+        }
+
         Display getDisplay(NvU32 index = 0) {
             Display result;
             char displayName[NVAPI_SHORT_STRING_MAX]{};

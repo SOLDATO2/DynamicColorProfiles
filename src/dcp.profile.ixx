@@ -18,7 +18,7 @@ module;
 export module dcp.profile;
 
 export namespace dcp::profile {
-    struct ColorSettings
+    struct NvidiaColorSettings
     {
         int brightness = 50;
         int contrast = 50;
@@ -27,10 +27,24 @@ export namespace dcp::profile {
         int hue = 0;
     };
 
-    struct Profile
+    struct NvidiaProfile
     {
         std::string name;
-        std::vector<ColorSettings> settings;
+        std::vector<NvidiaColorSettings> settings;
+    };
+
+    struct AmdColorSettings
+    {
+        int brightness = 0;
+        int hue = 0;
+        int contrast = 100;
+        int saturation = 100;
+    };
+
+    struct AmdProfile
+    {
+        std::string name;
+        std::vector<AmdColorSettings> settings;
     };
 
     class Loader {
@@ -39,7 +53,11 @@ export namespace dcp::profile {
             return "Default";
         }
 
-        static ColorSettings defaultSettings() {
+        static NvidiaColorSettings defaultNvidiaSettings() {
+            return {};
+        }
+
+        static AmdColorSettings defaultAmdSettings() {
             return {};
         }
 
@@ -51,7 +69,7 @@ export namespace dcp::profile {
             return ensureAppDirectory();
         }
 
-        static bool createProfile(const std::string& name) {
+        static bool createNvidiaProfile(const std::string& name) {
             if (!init())
                 return false;
 
@@ -60,15 +78,19 @@ export namespace dcp::profile {
             if (profileName.empty() || isDefaultProfileName(profileName))
                 return false;
 
-            const std::filesystem::path path = getProfilePath(profileName);
+            const std::filesystem::path path = getNvidiaProfilePath(profileName);
 
-            if (std::filesystem::exists(path))
+            if (std::filesystem::exists(path)) {
                 return false;
+            }
 
-            return saveProfile({profileName, {}});
+            return saveNvidiaProfile({profileName, {}});
         }
 
-        static bool saveSettings( const std::string& name, const ColorSettings& settings) {
+        static bool saveNvidiaSettings(
+            const std::string& name,
+            const NvidiaColorSettings& settings)
+        {
             if (!init())
                 return false;
 
@@ -77,20 +99,46 @@ export namespace dcp::profile {
             if (profileName.empty() || isDefaultProfileName(profileName))
                 return false;
 
-            Profile profile;
+            NvidiaProfile profile;
 
-            if (const std::optional<Profile> existing = loadProfile(profileName)) {
+            if (const std::optional<NvidiaProfile> existing =
+                    loadNvidiaProfile(profileName)) {
                 profile = *existing;
             } else {
                 profile.name = profileName;
             }
 
-            profile.settings.push_back(clampSettings(settings));
+            profile.settings.push_back(clampNvidiaSettings(settings));
 
-            return saveProfile(profile);
+            return saveNvidiaProfile(profile);
         }
 
-        static bool saveProfile(Profile profile) {
+        static bool saveAmdSettings(
+            const std::string& name,
+            const AmdColorSettings& settings)
+        {
+            if (!init())
+                return false;
+
+            const std::string profileName = normalizeName(name);
+
+            if (profileName.empty() || isDefaultProfileName(profileName))
+                return false;
+
+            AmdProfile profile;
+
+            if (const std::optional<AmdProfile> existing =
+                    loadAmdProfile(profileName)) {
+                profile = *existing;
+            } else {
+                profile.name = profileName;
+            }
+
+            profile.settings.push_back(clampAmdSettings(settings));
+            return saveAmdProfile(profile);
+        }
+
+        static bool saveNvidiaProfile(NvidiaProfile profile) {
             if (!init())
                 return false;
 
@@ -99,18 +147,20 @@ export namespace dcp::profile {
             if (profile.name.empty() || isDefaultProfileName(profile.name))
                 return false;
 
-            for (ColorSettings& settings : profile.settings) {
-                settings = clampSettings(settings);
+            for (NvidiaColorSettings& settings : profile.settings) {
+                settings = clampNvidiaSettings(settings);
             }
 
-            std::ofstream output(getProfilePath(profile.name), std::ios::trunc);
+            std::ofstream output(
+                getNvidiaProfilePath(profile.name),
+                std::ios::trunc);
 
             if (!output)
                 return false;
 
             output << "DCP_PROFILE_V1\n" << "name=" << profile.name << '\n';
 
-            for (const ColorSettings& settings : profile.settings) {
+            for (const NvidiaColorSettings& settings : profile.settings) {
                 output
                     << "settings "
                     << settings.brightness << ' '
@@ -123,26 +173,49 @@ export namespace dcp::profile {
             return true;
         }
 
-        static std::optional<Profile> loadProfile(const std::string& name) {
+        static std::optional<NvidiaProfile> loadNvidiaProfile(
+            const std::string& name)
+        {
             const std::string profileName = normalizeName(name);
 
             if (profileName.empty())
                 return std::nullopt;
 
             if (isDefaultProfileName(profileName)) {
-                return Profile{
+                return NvidiaProfile{
                     defaultProfileName(),
-                    {defaultSettings()}
+                    {defaultNvidiaSettings()}
                 };
             }
 
             if (!init())
                 return std::nullopt;
 
-            return readProfile(getProfilePath(profileName));
+            return readNvidiaProfile(getNvidiaProfilePath(profileName));
         }
 
-        static std::vector<std::string> listProfiles() {
+        static std::optional<AmdProfile> loadAmdProfile(
+            const std::string& name)
+        {
+            const std::string profileName = normalizeName(name);
+
+            if (profileName.empty())
+                return std::nullopt;
+
+            if (isDefaultProfileName(profileName)) {
+                return AmdProfile{
+                    defaultProfileName(),
+                    {defaultAmdSettings()}
+                };
+            }
+
+            if (!init())
+                return std::nullopt;
+
+            return readAmdProfile(getAmdProfilePath(profileName));
+        }
+
+        static std::vector<std::string> listNvidiaProfiles() {
             std::vector<std::string> userProfiles;
 
             if (init()) {
@@ -154,7 +227,8 @@ export namespace dcp::profile {
                             continue;
                         }
 
-                        if (const std::optional<Profile> profile = readProfile(entry.path());
+                        if (const std::optional<NvidiaProfile> profile =
+                                readNvidiaProfile(entry.path());
                             profile &&
                             !isDefaultProfileName(profile->name)) {
                             userProfiles.push_back(profile->name);
@@ -174,13 +248,67 @@ export namespace dcp::profile {
             return profiles;
         }
 
-        static std::optional<ColorSettings> loadLatestSettings(
+        static std::vector<std::string> listAmdProfiles() {
+            std::vector<std::string> userProfiles;
+
+            if (init()) {
+                try {
+                    for (const std::filesystem::directory_entry& entry :
+                         std::filesystem::directory_iterator(getAppDirectory())) {
+                        if (!entry.is_regular_file() ||
+                            entry.path().extension() != ".dcp") {
+                            continue;
+                        }
+
+                        if (const std::optional<AmdProfile> profile =
+                                readAmdProfile(entry.path());
+                            profile &&
+                            !isDefaultProfileName(profile->name)) {
+                            userProfiles.push_back(profile->name);
+                        }
+                    }
+                } catch (const std::exception& e) {
+                    std::cerr << "Filesystem error: " << e.what() << std::endl;
+                }
+            }
+
+            std::sort(userProfiles.begin(), userProfiles.end());
+            userProfiles.erase(
+                std::unique(userProfiles.begin(), userProfiles.end()),
+                userProfiles.end());
+            userProfiles.erase(
+                std::unique(userProfiles.begin(), userProfiles.end()),
+                userProfiles.end());
+
+            std::vector<std::string> profiles;
+            profiles.reserve(userProfiles.size() + 1);
+            profiles.push_back(defaultProfileName());
+            profiles.insert(profiles.end(), userProfiles.begin(), userProfiles.end());
+            return profiles;
+        }
+
+        static std::optional<NvidiaColorSettings> loadLatestNvidiaSettings(
             const std::string& name) {
             if (isDefaultProfileName(name))
-                return defaultSettings();
+                return defaultNvidiaSettings();
 
-            const std::optional<Profile> profile =
-                loadProfile(name);
+            const std::optional<NvidiaProfile> profile =
+                loadNvidiaProfile(name);
+
+            if (!profile || profile->settings.empty())
+                return std::nullopt;
+
+            return profile->settings.back();
+        }
+
+        static std::optional<AmdColorSettings> loadLatestAmdSettings(
+            const std::string& name)
+        {
+            if (isDefaultProfileName(name))
+                return defaultAmdSettings();
+
+            const std::optional<AmdProfile> profile =
+                loadAmdProfile(name);
 
             if (!profile || profile->settings.empty())
                 return std::nullopt;
@@ -241,12 +369,51 @@ export namespace dcp::profile {
             }
         }
 
-        static std::filesystem::path getProfilePath( const std::string& profileName) {
+        static std::filesystem::path getNvidiaProfilePath(
+            const std::string& profileName)
+        {
             return getAppDirectory() /
                 (sanitizeFileName(profileName) + ".dcp");
         }
 
-        static std::optional<Profile> readProfile(const std::filesystem::path& path) {
+        static std::filesystem::path getAmdProfilePath(
+            const std::string& profileName)
+        {
+            return getAppDirectory() /
+                (sanitizeFileName(profileName) + ".amd.dcp");
+        }
+
+        static bool saveAmdProfile(AmdProfile profile) {
+            profile.name = normalizeName(profile.name);
+
+            if (profile.name.empty() || isDefaultProfileName(profile.name))
+                return false;
+
+            for (AmdColorSettings& settings : profile.settings)
+                settings = clampAmdSettings(settings);
+
+            std::ofstream output(getAmdProfilePath(profile.name), std::ios::trunc);
+
+            if (!output)
+                return false;
+
+            output << "DCP_AMD_PROFILE_V1\n" << "name=" << profile.name << '\n';
+
+            for (const AmdColorSettings& settings : profile.settings) {
+                output
+                    << "settings "
+                    << settings.brightness << ' '
+                    << settings.hue << ' '
+                    << settings.contrast << ' '
+                    << settings.saturation << '\n';
+            }
+
+            return true;
+        }
+
+        static std::optional<NvidiaProfile> readNvidiaProfile(
+            const std::filesystem::path& path)
+        {
             std::ifstream input(path);
 
             if (!input)
@@ -259,7 +426,7 @@ export namespace dcp::profile {
                 return std::nullopt;
             }
 
-            Profile profile;
+            NvidiaProfile profile;
 
             while (std::getline(input, line)) {
                 if (line.rfind("name=", 0) == 0) {
@@ -268,8 +435,8 @@ export namespace dcp::profile {
                 }
 
                 if (line.rfind("settings ", 0) == 0) {
-                    if (const std::optional<ColorSettings> settings =
-                            parseSettingsLine(line)) {
+                    if (const std::optional<NvidiaColorSettings> settings =
+                            parseNvidiaSettingsLine(line)) {
                         profile.settings.push_back(*settings);
                     }
                 }
@@ -281,10 +448,56 @@ export namespace dcp::profile {
             return profile;
         }
 
-        static std::optional<ColorSettings> parseSettingsLine(const std::string& line) {
+        static std::optional<AmdProfile> readAmdProfile(
+            const std::filesystem::path& path)
+        {
+            std::ifstream input(path);
+
+            if (!input)
+                return std::nullopt;
+
+            std::string line;
+
+            if (!std::getline(input, line) ||
+                line != "DCP_AMD_PROFILE_V1") {
+                return std::nullopt;
+            }
+
+            AmdProfile profile;
+
+            while (std::getline(input, line)) {
+                if (line.rfind("name=", 0) == 0) {
+                    profile.name = normalizeName(line.substr(5));
+                    continue;
+                }
+
+                if (line.rfind("settings ", 0) == 0) {
+                    if (const std::optional<AmdColorSettings> settings =
+                            parseAmdSettingsLine(line)) {
+                        profile.settings.push_back(*settings);
+                    }
+                }
+            }
+
+            if (profile.name.empty()) {
+                std::string fileName = path.stem().string();
+                constexpr std::string_view AMD_SUFFIX = ".amd";
+
+                if (fileName.ends_with(AMD_SUFFIX))
+                    fileName.resize(fileName.size() - AMD_SUFFIX.size());
+
+                profile.name = fileName;
+            }
+
+            return profile;
+        }
+
+        static std::optional<NvidiaColorSettings> parseNvidiaSettingsLine(
+            const std::string& line)
+        {
             std::istringstream input(line);
             std::string keyword;
-            ColorSettings settings;
+            NvidiaColorSettings settings;
 
             input
                 >> keyword
@@ -297,10 +510,32 @@ export namespace dcp::profile {
             if (!input || keyword != "settings")
                 return std::nullopt;
 
-            return clampSettings(settings);
+            return clampNvidiaSettings(settings);
         }
 
-        static ColorSettings clampSettings(ColorSettings settings) {
+        static std::optional<AmdColorSettings> parseAmdSettingsLine(
+            const std::string& line)
+        {
+            std::istringstream input(line);
+            std::string keyword;
+            AmdColorSettings settings;
+
+            input
+                >> keyword
+                >> settings.brightness
+                >> settings.hue
+                >> settings.contrast
+                >> settings.saturation;
+
+            if (!input || keyword != "settings")
+                return std::nullopt;
+
+            return clampAmdSettings(settings);
+        }
+
+        static NvidiaColorSettings clampNvidiaSettings(
+            NvidiaColorSettings settings)
+        {
             settings.brightness =
                 std::clamp(settings.brightness, 0, 100);
 
@@ -316,6 +551,18 @@ export namespace dcp::profile {
             settings.hue =
                 ((settings.hue % 360) + 360) % 360;
 
+            return settings;
+        }
+
+        static AmdColorSettings clampAmdSettings(AmdColorSettings settings) {
+            settings.brightness =
+                std::clamp(settings.brightness, -100, 100);
+            settings.hue =
+                std::clamp(settings.hue, -30, 30);
+            settings.contrast =
+                std::clamp(settings.contrast, 0, 200);
+            settings.saturation =
+                std::clamp(settings.saturation, 0, 200);
             return settings;
         }
 

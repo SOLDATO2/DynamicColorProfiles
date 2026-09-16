@@ -3,6 +3,9 @@
   <component name="VcsDirectoryMappings">
     <mapping directory="$PROJECT_DIR$" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/cmake-build-debug/_deps/slint-src" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/cmake-build-minsizerel/_deps/corrosion-src" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/cmake-build-minsizerel/_deps/slint-src" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/cmake-build-release/_deps/corrosion-src" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/cmake-build-release/_deps/slint-src" vcs="Git" />
   </component>
 </project>

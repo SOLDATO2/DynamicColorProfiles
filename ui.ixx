@@ -9,11 +9,12 @@ module;
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <variant>
 #include <vector>
 
 export module ui;
 
-import dcp.nvidia;
+import dcp.factory;
 import dcp.preferences;
 import dcp.profile;
 import dcp.windows;
@@ -54,8 +55,7 @@ namespace {
             << scaled / 100
             << '.';
 
-        const int decimals =
-            std::abs(scaled % 100);
+        const int decimals = std::abs(scaled % 100);
 
         if (decimals < 10)
             output << '0';
@@ -64,9 +64,7 @@ namespace {
         return {output.str()};
     }
 
-    int profileIndex(
-        const std::vector<std::string>& profiles,
-        std::string_view selectedProfile)
+    int profileIndex(const std::vector<std::string>& profiles, std::string_view selectedProfile)
     {
         for (std::size_t i = 0; i < profiles.size(); i++) {
             if (profiles[i] == selectedProfile)
@@ -76,10 +74,19 @@ namespace {
         return -1;
     }
 
-    std::string availableProfileOrDefault(std::string_view profileName)
+    std::vector<std::string> profilesForBackend(dcp::Backend backend)
+    {
+        return backend == dcp::Backend::Nvidia
+            ? dcp::profile::Loader::listNvidiaProfiles()
+            : dcp::profile::Loader::listAmdProfiles();
+    }
+
+    std::string availableProfileOrDefault(
+        std::string_view profileName,
+        dcp::Backend backend)
     {
         const std::vector<std::string> profiles =
-            dcp::profile::Loader::listProfiles();
+            profilesForBackend(backend);
 
         const int index =
             profileIndex(profiles, profileName);
@@ -94,21 +101,35 @@ namespace {
     public:
         App()
             : m_window(AppWindow::create()),
-              m_tray(AppTray::create())
+              m_tray(AppTray::create()),
+              m_dcp(dcp::DCPFactory::create())
         {
             m_preferences =
                 dcp::preferences::load();
             m_preferences.openOnStartup =
                 dcp::windows::isRunAtStartupEnabled();
-            m_preferences.lastProfileName =
-                availableProfileOrDefault(m_preferences.lastProfileName);
-            m_preferences.exitProfileName =
-                availableProfileOrDefault(m_preferences.exitProfileName);
 
             setDefaultProfileName();
             connectCallbacks();
 
-            loadProfile(m_preferences.lastProfileName, false);
+            if (m_dcp) {
+                const dcp::Backend backend = m_dcp->backend();
+                std::string& initialProfileName =
+                    backend == dcp::Backend::Nvidia
+                        ? m_nvidiaProfileName
+                        : m_amdProfileName;
+                initialProfileName = availableProfileOrDefault(
+                    m_preferences.lastProfileName,
+                    backend);
+                m_preferences.exitProfileName = availableProfileOrDefault(
+                    m_preferences.exitProfileName,
+                    backend);
+                selectBackend(backend, false);
+            } else {
+                m_window->set_selected_backend(-1);
+                refreshProfiles({});
+            }
+
             syncPreferencesToUi();
             savePreferences();
         }
@@ -129,8 +150,14 @@ namespace {
             std::make_shared<slint::VectorModel<slint::SharedString>>();
         std::vector<std::string> m_profiles;
         dcp::preferences::AppPreferences m_preferences;
-        dcp::nvidia::DCP m_dcp;
-        dcp::profile::ColorSettings m_settings;
+        std::unique_ptr<dcp::DCP> m_dcp;
+        std::optional<dcp::Backend> m_selectedBackend;
+        dcp::profile::NvidiaColorSettings m_nvidiaSettings;
+        dcp::profile::AmdColorSettings m_amdSettings;
+        std::string m_nvidiaProfileName =
+            dcp::profile::Loader::defaultProfileName();
+        std::string m_amdProfileName =
+            dcp::profile::Loader::defaultProfileName();
         bool m_quitting = false;
 
         void connectCallbacks()
@@ -160,24 +187,40 @@ namespace {
                 loadProfile(toStdString(name));
             });
 
-            m_window->on_brightness_changed([this](float value) {
-                setBrightness(static_cast<int>(std::lround(value)));
+            m_window->on_nvidia_brightness_changed([this](float value) {
+                setSetting(dcp::Setting::NvidiaBrightness, value);
             });
 
-            m_window->on_contrast_changed([this](float value) {
-                setContrast(static_cast<int>(std::lround(value)));
+            m_window->on_nvidia_contrast_changed([this](float value) {
+                setSetting(dcp::Setting::NvidiaContrast, value);
             });
 
-            m_window->on_gamma_changed([this](float value) {
-                setGamma(value);
+            m_window->on_nvidia_gamma_changed([this](float value) {
+                setSetting(dcp::Setting::NvidiaGamma, value);
             });
 
-            m_window->on_vibrance_changed([this](float value) {
-                setVibrance(static_cast<int>(std::lround(value)));
+            m_window->on_nvidia_vibrance_changed([this](float value) {
+                setSetting(dcp::Setting::NvidiaVibrance, value);
             });
 
-            m_window->on_hue_changed([this](float value) {
-                setHue(static_cast<int>(std::lround(value)));
+            m_window->on_nvidia_hue_changed([this](float value) {
+                setSetting(dcp::Setting::NvidiaHue, value);
+            });
+
+            m_window->on_amd_brightness_changed([this](float value) {
+                setSetting(dcp::Setting::AmdBrightness, value);
+            });
+
+            m_window->on_amd_hue_changed([this](float value) {
+                setSetting(dcp::Setting::AmdHue, value);
+            });
+
+            m_window->on_amd_contrast_changed([this](float value) {
+                setSetting(dcp::Setting::AmdContrast, value);
+            });
+
+            m_window->on_amd_saturation_changed([this](float value) {
+                setSetting(dcp::Setting::AmdSaturation, value);
             });
 
             m_window->on_open_on_startup_changed([this](bool enabled) {
@@ -219,10 +262,33 @@ namespace {
                 toSharedString(dcp::profile::Loader::defaultProfileName()));
         }
 
+        bool selectBackend(
+            dcp::Backend backend,
+            bool remember = true)
+        {
+            if (!m_dcp || m_dcp->backend() != backend)
+                return false;
+
+            m_selectedBackend = backend;
+            m_window->set_selected_backend(
+                backend == dcp::Backend::Nvidia ? 0 : 1);
+
+            const std::string& profileName =
+                backend == dcp::Backend::Nvidia
+                    ? m_nvidiaProfileName
+                    : m_amdProfileName;
+
+            const std::string selectedProfile =
+                availableProfileOrDefault(profileName, backend);
+
+            return loadProfile(selectedProfile, remember);
+        }
+
         void refreshProfiles(std::string_view selectedProfile)
         {
-            m_profiles =
-                dcp::profile::Loader::listProfiles();
+            m_profiles = m_selectedBackend
+                ? profilesForBackend(*m_selectedBackend)
+                : std::vector<std::string>{};
 
             std::vector<slint::SharedString> items;
             items.reserve(m_profiles.size());
@@ -249,18 +315,46 @@ namespace {
                 profileIndex(m_profiles, m_preferences.exitProfileName));
         }
 
+        void updateSettingsFromDcp()
+        {
+            if (!m_dcp)
+                return;
+
+            const dcp::Settings settings = m_dcp->settings();
+
+            if (const auto* nvidiaSettings =
+                    std::get_if<dcp::profile::NvidiaColorSettings>(&settings)) {
+                m_nvidiaSettings = *nvidiaSettings;
+                return;
+            }
+
+            m_amdSettings =
+                std::get<dcp::profile::AmdColorSettings>(settings);
+        }
+
         void syncSettingsToUi()
         {
-            m_window->set_brightness(
-                static_cast<float>(m_settings.brightness));
-            m_window->set_contrast(
-                static_cast<float>(m_settings.contrast));
-            m_window->set_gamma(
-                static_cast<float>(m_settings.gamma));
-            m_window->set_vibrance(
-                static_cast<float>(m_settings.vibrance));
-            m_window->set_hue(
-                static_cast<float>(m_settings.hue));
+            if (m_selectedBackend == dcp::Backend::Nvidia) {
+                m_window->set_nvidia_brightness(
+                    static_cast<float>(m_nvidiaSettings.brightness));
+                m_window->set_nvidia_contrast(
+                    static_cast<float>(m_nvidiaSettings.contrast));
+                m_window->set_nvidia_gamma(
+                    static_cast<float>(m_nvidiaSettings.gamma));
+                m_window->set_nvidia_vibrance(
+                    static_cast<float>(m_nvidiaSettings.vibrance));
+                m_window->set_nvidia_hue(
+                    static_cast<float>(m_nvidiaSettings.hue));
+            } else if (m_selectedBackend == dcp::Backend::Amd) {
+                m_window->set_amd_brightness(
+                    static_cast<float>(m_amdSettings.brightness));
+                m_window->set_amd_hue(
+                    static_cast<float>(m_amdSettings.hue));
+                m_window->set_amd_contrast(
+                    static_cast<float>(m_amdSettings.contrast));
+                m_window->set_amd_saturation(
+                    static_cast<float>(m_amdSettings.saturation));
+            }
 
             updateValueLabels();
         }
@@ -287,16 +381,24 @@ namespace {
 
         void updateValueLabels()
         {
-            m_window->set_brightness_text(
-                intText(m_settings.brightness));
-            m_window->set_contrast_text(
-                intText(m_settings.contrast));
-            m_window->set_gamma_text(
-                gammaText(m_settings.gamma));
-            m_window->set_vibrance_text(
-                intText(m_settings.vibrance));
-            m_window->set_hue_text(
-                intText(m_settings.hue));
+            m_window->set_nvidia_brightness_text(
+                intText(m_nvidiaSettings.brightness));
+            m_window->set_nvidia_contrast_text(
+                intText(m_nvidiaSettings.contrast));
+            m_window->set_nvidia_gamma_text(
+                gammaText(m_nvidiaSettings.gamma));
+            m_window->set_nvidia_vibrance_text(
+                intText(m_nvidiaSettings.vibrance));
+            m_window->set_nvidia_hue_text(
+                intText(m_nvidiaSettings.hue));
+            m_window->set_amd_brightness_text(
+                intText(m_amdSettings.brightness));
+            m_window->set_amd_hue_text(
+                intText(m_amdSettings.hue));
+            m_window->set_amd_contrast_text(
+                intText(m_amdSettings.contrast));
+            m_window->set_amd_saturation_text(
+                intText(m_amdSettings.saturation));
         }
 
         void resetToDefault()
@@ -304,56 +406,31 @@ namespace {
             loadProfile(dcp::profile::Loader::defaultProfileName());
         }
 
-        void setBrightness(int value)
+        void setSetting(dcp::Setting setting, double value)
         {
+            if (!m_dcp || !m_dcp->supports(setting))
+                return;
 
-
-            m_dcp.setBrightness(value);
-            m_settings = m_dcp.settings();
+            m_dcp->set(setting, value);
+            updateSettingsFromDcp();
             updateValueLabels();
-        }
-
-        void setContrast(int value)
-        {
-
-
-            m_dcp.setContrast(value);
-            m_settings = m_dcp.settings();
-            updateValueLabels();
-        }
-
-        void setGamma(double value)
-        {
-
-
-            m_dcp.setGamma(value);
-            m_settings = m_dcp.settings();
-            updateValueLabels();
-        }
-
-        void setVibrance(int value)
-        {
-
-
-            m_dcp.setDigitalVibrance(value);
-            m_settings = m_dcp.settings();
-            updateValueLabels();
-
-        }
-
-        void setHue(int value)
-        {
-
-
-            m_dcp.setHue(value);
-            m_settings = m_dcp.settings();
-            updateValueLabels();
-
         }
 
         void saveCurrentProfile(const std::string& profileName)
         {
-            if (!dcp::profile::Loader::saveSettings(profileName, m_settings))
+            if (!m_selectedBackend)
+                return;
+
+            const bool saved =
+                *m_selectedBackend == dcp::Backend::Nvidia
+                    ? dcp::profile::Loader::saveNvidiaSettings(
+                        profileName,
+                        m_nvidiaSettings)
+                    : dcp::profile::Loader::saveAmdSettings(
+                        profileName,
+                        m_amdSettings);
+
+            if (!saved)
                 return;
 
             loadProfile(profileName);
@@ -366,23 +443,42 @@ namespace {
             if (requestedProfileName.empty())
                 return false;
 
-            const std::optional<dcp::profile::Profile> profile =
-                dcp::profile::Loader::loadProfile(requestedProfileName);
-
-            if (!profile || profile->settings.empty())
+            if (!m_selectedBackend || !m_dcp)
                 return false;
 
-            const dcp::profile::ColorSettings settings =
-                profile->settings.back();
+            std::string loadedProfileName;
 
-            m_dcp.applySettings(settings);
-            m_settings = m_dcp.settings();
-            m_window->set_profile_name(toSharedString(profile->name));
-            refreshProfiles(profile->name);
+            if (*m_selectedBackend == dcp::Backend::Nvidia) {
+                const std::optional<dcp::profile::NvidiaProfile> profile =
+                    dcp::profile::Loader::loadNvidiaProfile(
+                        requestedProfileName);
+
+                if (!profile || profile->settings.empty())
+                    return false;
+
+                m_dcp->applySettings(profile->settings.back());
+                updateSettingsFromDcp();
+                m_nvidiaProfileName = profile->name;
+                loadedProfileName = profile->name;
+            } else {
+                const std::optional<dcp::profile::AmdProfile> profile =
+                    dcp::profile::Loader::loadAmdProfile(requestedProfileName);
+
+                if (!profile || profile->settings.empty())
+                    return false;
+
+                m_dcp->applySettings(profile->settings.back());
+                updateSettingsFromDcp();
+                m_amdProfileName = profile->name;
+                loadedProfileName = profile->name;
+            }
+
+            m_window->set_profile_name(toSharedString(loadedProfileName));
+            refreshProfiles(loadedProfileName);
             syncSettingsToUi();
 
             if (remember) {
-                m_preferences.lastProfileName = profile->name;
+                m_preferences.lastProfileName = loadedProfileName;
                 savePreferences();
             }
 
@@ -423,13 +519,26 @@ namespace {
 
         void setExitProfile(const std::string& profileName)
         {
-            const std::optional<dcp::profile::Profile> profile =
-                dcp::profile::Loader::loadProfile(profileName);
-
-            if (!profile)
+            if (!m_selectedBackend)
                 return;
 
-            m_preferences.exitProfileName = profile->name;
+            if (*m_selectedBackend == dcp::Backend::Nvidia) {
+                const std::optional<dcp::profile::NvidiaProfile> profile =
+                    dcp::profile::Loader::loadNvidiaProfile(profileName);
+
+                if (!profile)
+                    return;
+
+                m_preferences.exitProfileName = profile->name;
+            } else {
+                const std::optional<dcp::profile::AmdProfile> profile =
+                    dcp::profile::Loader::loadAmdProfile(profileName);
+
+                if (!profile)
+                    return;
+
+                m_preferences.exitProfileName = profile->name;
+            }
 
             savePreferences();
             syncPreferencesToUi();
@@ -454,7 +563,7 @@ namespace {
 
 int dcp::ui::run()
 {
-    if (!dcp::windows::acquireSingleInstance())
+    if (!windows::acquireSingleInstance())
         return SUCCESS;
 
     App app;

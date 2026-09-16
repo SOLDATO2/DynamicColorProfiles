@@ -61,19 +61,29 @@ export component AppWindow inherits Window {
 
     in property <[string]> profiles;
     in property <string> default-profile-name: "Default";
+    in-out property <int> selected-backend: -1;
     in-out property <int> selected-profile: -1;
     in-out property <string> profile-name;
-    in-out property <float> brightness: 50;
-    in-out property <float> contrast: 50;
-    in-out property <float> gamma: 1;
-    in-out property <float> vibrance: 50;
-    in-out property <float> hue: 0;
+    in-out property <float> nvidia-brightness: 50;
+    in-out property <float> nvidia-contrast: 50;
+    in-out property <float> nvidia-gamma: 1;
+    in-out property <float> nvidia-vibrance: 50;
+    in-out property <float> nvidia-hue: 0;
 
-    in-out property <string> brightness-text: "50";
-    in-out property <string> contrast-text: "50";
-    in-out property <string> gamma-text: "1.00";
-    in-out property <string> vibrance-text: "50";
-    in-out property <string> hue-text: "0";
+    in-out property <float> amd-brightness: 0;
+    in-out property <float> amd-hue: 0;
+    in-out property <float> amd-contrast: 100;
+    in-out property <float> amd-saturation: 100;
+
+    in-out property <string> nvidia-brightness-text: "50";
+    in-out property <string> nvidia-contrast-text: "50";
+    in-out property <string> nvidia-gamma-text: "1.00";
+    in-out property <string> nvidia-vibrance-text: "50";
+    in-out property <string> nvidia-hue-text: "0";
+    in-out property <string> amd-brightness-text: "0";
+    in-out property <string> amd-hue-text: "0";
+    in-out property <string> amd-contrast-text: "100";
+    in-out property <string> amd-saturation-text: "100";
     in-out property <bool> open-on-startup: false;
     in-out property <bool> close-keep-running-in-tray: true;
     in-out property <bool> close-quit: false;
@@ -83,24 +93,41 @@ export component AppWindow inherits Window {
     callback save-profile(string);
     callback reset-settings();
     callback profile-selected(string);
-    callback brightness-changed(float);
-    callback contrast-changed(float);
-    callback gamma-changed(float);
-    callback vibrance-changed(float);
-    callback hue-changed(float);
+    callback nvidia-brightness-changed(float);
+    callback nvidia-contrast-changed(float);
+    callback nvidia-gamma-changed(float);
+    callback nvidia-vibrance-changed(float);
+    callback nvidia-hue-changed(float);
     callback open-on-startup-changed(bool);
     callback close-action-changed(int);
     callback apply-exit-profile-changed(bool);
     callback exit-profile-selected(string);
+    callback amd-brightness-changed(float);
+    callback amd-hue-changed(float);
+    callback amd-contrast-changed(float);
+    callback amd-saturation-changed(float);
 
     VerticalBox {
         padding: 16px;
         spacing: 12px;
 
-        Text {
-            text: "Dynamic Color Profiles";
-            font-size: 18px;
+        HorizontalBox {
+            spacing: 10px;
             vertical-stretch: 0;
+
+            Text {
+                text: "Dynamic Color Profiles";
+                font-size: 18px;
+                vertical-alignment: center;
+                horizontal-stretch: 1;
+            }
+
+            Text {
+                text: root.selected-backend == 0 ? "NVIDIA"
+                    : root.selected-backend == 1 ? "AMD"
+                    : "Unavailable";
+                vertical-alignment: center;
+            }
         }
 
         TabWidget {
@@ -135,7 +162,8 @@ export component AppWindow inherits Window {
 
                                 Button {
                                     text: "Save";
-                                    enabled: root.profile-name != ""
+                                    enabled: root.selected-backend >= 0
+                                        && root.profile-name != ""
                                         && root.profile-name != root.default-profile-name;
 
                                     clicked => {
@@ -165,50 +193,100 @@ export component AppWindow inherits Window {
                         VerticalBox {
                             spacing: 10px;
 
-                            SettingRow {
-                                label: "Brightness";
-                                minimum: 0;
-                                maximum: 100;
-                                value <=> root.brightness;
-                                value-text: root.brightness-text;
-                                changed(value) => { root.brightness-changed(value); }
+                            if root.selected-backend == 0 : VerticalBox {
+                                spacing: 10px;
+
+                                SettingRow {
+                                    label: "Brightness";
+                                    minimum: 0;
+                                    maximum: 100;
+                                    value <=> root.nvidia-brightness;
+                                    value-text: root.nvidia-brightness-text;
+                                    changed(value) => { root.nvidia-brightness-changed(value); }
+                                }
+
+                                SettingRow {
+                                    label: "Contrast";
+                                    minimum: 0;
+                                    maximum: 100;
+                                    value <=> root.nvidia-contrast;
+                                    value-text: root.nvidia-contrast-text;
+                                    changed(value) => { root.nvidia-contrast-changed(value); }
+                                }
+
+                                SettingRow {
+                                    label: "Gamma";
+                                    minimum: 0.4;
+                                    maximum: 2.8;
+                                    step: 0.01;
+                                    value <=> root.nvidia-gamma;
+                                    value-text: root.nvidia-gamma-text;
+                                    changed(value) => { root.nvidia-gamma-changed(value); }
+                                }
+
+                                SettingRow {
+                                    label: "Digital Vibrance";
+                                    minimum: 0;
+                                    maximum: 100;
+                                    value <=> root.nvidia-vibrance;
+                                    value-text: root.nvidia-vibrance-text;
+                                    changed(value) => { root.nvidia-vibrance-changed(value); }
+                                }
+
+                                SettingRow {
+                                    label: "Hue";
+                                    minimum: 0;
+                                    maximum: 359;
+                                    value <=> root.nvidia-hue;
+                                    value-text: root.nvidia-hue-text;
+                                    changed(value) => { root.nvidia-hue-changed(value); }
+                                }
                             }
 
-                            SettingRow {
-                                label: "Contrast";
-                                minimum: 0;
-                                maximum: 100;
-                                value <=> root.contrast;
-                                value-text: root.contrast-text;
-                                changed(value) => { root.contrast-changed(value); }
+                            if root.selected-backend == 1 : VerticalBox {
+                                spacing: 10px;
+
+                                SettingRow {
+                                    label: "Brightness";
+                                    minimum: -100;
+                                    maximum: 100;
+                                    value <=> root.amd-brightness;
+                                    value-text: root.amd-brightness-text;
+                                    changed(value) => { root.amd-brightness-changed(value); }
+                                }
+
+                                SettingRow {
+                                    label: "Hue";
+                                    minimum: -30;
+                                    maximum: 30;
+                                    value <=> root.amd-hue;
+                                    value-text: root.amd-hue-text;
+                                    changed(value) => { root.amd-hue-changed(value); }
+                                }
+
+                                SettingRow {
+                                    label: "Contrast";
+                                    minimum: 0;
+                                    maximum: 200;
+                                    value <=> root.amd-contrast;
+                                    value-text: root.amd-contrast-text;
+                                    changed(value) => { root.amd-contrast-changed(value); }
+                                }
+
+                                SettingRow {
+                                    label: "Saturation";
+                                    minimum: 0;
+                                    maximum: 200;
+                                    value <=> root.amd-saturation;
+                                    value-text: root.amd-saturation-text;
+                                    changed(value) => { root.amd-saturation-changed(value); }
+                                }
                             }
 
-                            SettingRow {
-                                label: "Gamma";
-                                minimum: 0.4;
-                                maximum: 2.8;
-                                step: 0.01;
-                                value <=> root.gamma;
-                                value-text: root.gamma-text;
-                                changed(value) => { root.gamma-changed(value); }
-                            }
-
-                            SettingRow {
-                                label: "Digital Vibrance";
-                                minimum: 0;
-                                maximum: 100;
-                                value <=> root.vibrance;
-                                value-text: root.vibrance-text;
-                                changed(value) => { root.vibrance-changed(value); }
-                            }
-
-                            SettingRow {
-                                label: "Hue";
-                                minimum: 0;
-                                maximum: 359;
-                                value <=> root.hue;
-                                value-text: root.hue-text;
-                                changed(value) => { root.hue-changed(value); }
+                            if root.selected-backend < 0 : Text {
+                                text: "No supported graphics backend is available.";
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
                             }
 
                             HorizontalBox {
