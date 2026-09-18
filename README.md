@@ -4,7 +4,9 @@ Dynamic Color Profiles is a simple, lightweight, portable and straight-forward t
 
 Simply adjust the sliders to your desire, name your profile and click save. Use the dropdown menu to load a profile. You can also load a saved profile through the system tray by clicking the icon with a right click.
 
-DCP utilizes dlls that came with your drivers to calculate and modify your desktop color settings, therefore the values displayed on the sliders should be 1:1 to Nvidia's control panel and AMD's adrenaline video settings.  
+Global profile shortcuts can be assigned from the **Hotkeys** tab. Select a profile, click the hotkey field, and press the desired key, such as `F1` or `F2`. The shortcut remains active while DCP is running, including when the window is hidden in the system tray.
+
+Since DCP uses nvidias dlls to adjust the color settings, the sliders values should be 1:1 to Nvidia's control panel sliders.
 
 <img width="711" height="936" alt="image" src="https://github.com/user-attachments/assets/a2e61888-2bda-48c0-8fd5-80f16deceebe" />
 

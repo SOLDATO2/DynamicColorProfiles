@@ -89,6 +89,10 @@ export component AppWindow inherits Window {
     in-out property <bool> close-quit: false;
     in-out property <bool> apply-exit-profile: false;
     in-out property <int> exit-profile-index: 0;
+    in-out property <int> hotkey-profile-index: -1;
+    in-out property <string> hotkey-profile-name;
+    in-out property <string> hotkey-text;
+    in-out property <bool> hotkey-capturing: false;
 
     callback save-profile(string);
     callback reset-settings();
@@ -106,6 +110,9 @@ export component AppWindow inherits Window {
     callback amd-hue-changed(float);
     callback amd-contrast-changed(float);
     callback amd-saturation-changed(float);
+    callback hotkey-profile-selected(string);
+    callback capture-hotkey(string, KeyEvent);
+    callback remove-hotkey(string);
 
     VerticalBox {
         padding: 16px;
@@ -301,6 +308,98 @@ export component AppWindow inherits Window {
                                 }
                             }
                         }
+                    }
+                }
+            }
+
+            Tab {
+                title: "Hotkeys";
+
+                VerticalBox {
+                    spacing: 12px;
+
+                    GroupBox {
+                        title: "Profile hotkey";
+                        vertical-stretch: 0;
+
+                        VerticalBox {
+                            spacing: 8px;
+
+                            Text {
+                                text: "Profile";
+                            }
+
+                            ComboBox {
+                                model: root.profiles;
+                                current-index <=> root.hotkey-profile-index;
+                                enabled: root.profiles.length > 0;
+                                horizontal-stretch: 1;
+
+                                selected => {
+                                    root.hotkey-capturing = false;
+                                    root.hotkey-profile-name = self.current-value;
+                                    root.hotkey-profile-selected(self.current-value);
+                                }
+                            }
+
+                            Text {
+                                text: "Hotkey";
+                            }
+
+                            HorizontalBox {
+                                spacing: 8px;
+
+                                hotkey-capture := FocusScope {
+                                    horizontal-stretch: 1;
+                                    height: 32px;
+
+                                    capture-key-pressed(event) => {
+                                        if root.hotkey-capturing {
+                                            root.hotkey-capturing = false;
+                                            root.capture-hotkey(
+                                                root.hotkey-profile-name,
+                                                event);
+                                            hotkey-capture.clear-focus();
+                                            EventResult.accept
+                                        } else {
+                                            EventResult.reject
+                                        }
+                                    }
+
+                                    LineEdit {
+                                        text: root.hotkey-capturing
+                                            ? "Press a key..."
+                                            : root.hotkey-text == ""
+                                                ? "Click and press a key"
+                                                : root.hotkey-text;
+                                        read-only: true;
+                                        enabled: root.hotkey-profile-index >= 0;
+                                    }
+
+                                    TouchArea {
+                                        enabled: root.hotkey-profile-index >= 0;
+                                        clicked => {
+                                            root.hotkey-capturing = true;
+                                            hotkey-capture.focus();
+                                        }
+                                    }
+                                }
+
+                                Button {
+                                    text: "Remove";
+                                    enabled: root.hotkey-profile-index >= 0
+                                        && root.hotkey-text != "";
+
+                                    clicked => {
+                                        root.remove-hotkey(root.hotkey-profile-name);
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        vertical-stretch: 1;
                     }
                 }
             }

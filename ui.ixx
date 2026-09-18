@@ -3,6 +3,7 @@ module;
 #include "ui.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <memory>
 #include <optional>
@@ -15,13 +16,10 @@ module;
 export module ui;
 
 import dcp.factory;
+import dcp.hotkeys;
 import dcp.preferences;
 import dcp.profile;
 import dcp.windows;
-
-export namespace dcp::ui {
-    int run();
-}
 
 namespace {
     using dcp_slint::AppTray;
@@ -64,6 +62,25 @@ namespace {
         return {output.str()};
     }
 
+    std::string capturedHotkeyText(
+        const slint::private_api::KeyEvent& event)
+    {
+        std::string keyText = toStdString(event.text);
+
+        if (keyText.size() == 1 &&
+            keyText.front() >= 'A' && keyText.front() <= 'Z') {
+            keyText.front() = static_cast<char>(
+                std::tolower(static_cast<unsigned char>(keyText.front())));
+        }
+
+        const auto keys = slint::Keys::from_parts({keyText});
+
+        if (!keys)
+            return {};
+
+        return toStdString(keys->to_string());
+    }
+
     int profileIndex(const std::vector<std::string>& profiles, std::string_view selectedProfile)
     {
         for (std::size_t i = 0; i < profiles.size(); i++) {
@@ -98,6 +115,25 @@ namespace {
     }
 
     class App {
+        slint::ComponentHandle<AppWindow> m_window;
+        slint::ComponentHandle<AppTray> m_tray;
+        std::shared_ptr<slint::VectorModel<slint::SharedString>> m_profileModel =
+            std::make_shared<slint::VectorModel<slint::SharedString>>();
+        std::vector<std::string> m_profiles;
+        dcp::preferences::AppPreferences m_preferences;
+        std::unique_ptr<dcp::DCP> m_dcp;
+        std::optional<dcp::Backend> m_selectedBackend;
+        dcp::profile::NvidiaColorSettings m_nvidiaSettings;
+        dcp::profile::AmdColorSettings m_amdSettings;
+        std::string m_nvidiaProfileName =
+            dcp::profile::Loader::defaultProfileName();
+        std::string m_amdProfileName =
+            dcp::profile::Loader::defaultProfileName();
+        std::vector<dcp::hotkeys::Binding> m_hotkeyBindings;
+        dcp::hotkeys::Manager m_hotkeyManager;
+        std::string m_hotkeyProfileName;
+        bool m_quitting = false;
+
     public:
         App()
             : m_window(AppWindow::create()),
@@ -106,6 +142,7 @@ namespace {
         {
             m_preferences =
                 dcp::preferences::load();
+            m_hotkeyBindings = dcp::hotkeys::Manager::load();
             m_preferences.openOnStartup =
                 dcp::windows::isRunAtStartupEnabled();
 
@@ -132,6 +169,7 @@ namespace {
 
             syncPreferencesToUi();
             savePreferences();
+            activateHotkeys();
         }
 
         int run()
@@ -144,21 +182,6 @@ namespace {
         }
 
     private:
-        slint::ComponentHandle<AppWindow> m_window;
-        slint::ComponentHandle<AppTray> m_tray;
-        std::shared_ptr<slint::VectorModel<slint::SharedString>> m_profileModel =
-            std::make_shared<slint::VectorModel<slint::SharedString>>();
-        std::vector<std::string> m_profiles;
-        dcp::preferences::AppPreferences m_preferences;
-        std::unique_ptr<dcp::DCP> m_dcp;
-        std::optional<dcp::Backend> m_selectedBackend;
-        dcp::profile::NvidiaColorSettings m_nvidiaSettings;
-        dcp::profile::AmdColorSettings m_amdSettings;
-        std::string m_nvidiaProfileName =
-            dcp::profile::Loader::defaultProfileName();
-        std::string m_amdProfileName =
-            dcp::profile::Loader::defaultProfileName();
-        bool m_quitting = false;
 
         void connectCallbacks()
         {
@@ -240,6 +263,27 @@ namespace {
                     setExitProfile(toStdString(name));
                 });
 
+            m_window->on_hotkey_profile_selected(
+                [this](const slint::SharedString& name) {
+                    selectHotkeyProfile(toStdString(name));
+                });
+
+            m_window->on_capture_hotkey(
+                [this](
+                    const slint::SharedString& profileName,
+                    const slint::private_api::KeyEvent& event) {
+                    const std::string hotkeyText =
+                        capturedHotkeyText(event);
+
+                    if (!hotkeyText.empty())
+                        assignHotkey(toStdString(profileName), hotkeyText);
+                });
+
+            m_window->on_remove_hotkey(
+                [this](const slint::SharedString& profileName) {
+                    removeHotkey(toStdString(profileName));
+                });
+
             m_tray->on_show_window([windowWeak] {
                 if (auto window = windowWeak.lock()) {
                     (*window)->show();
@@ -313,6 +357,11 @@ namespace {
 
             m_window->set_exit_profile_index(
                 profileIndex(m_profiles, m_preferences.exitProfileName));
+
+            if (selectedIndex >= 0)
+                selectHotkeyProfile(m_profiles[static_cast<std::size_t>(selectedIndex)]);
+            else
+                selectHotkeyProfile({});
         }
 
         void updateSettingsFromDcp()
@@ -544,6 +593,103 @@ namespace {
             syncPreferencesToUi();
         }
 
+        std::vector<dcp::hotkeys::Binding> activeHotkeyBindings(
+            const std::vector<dcp::hotkeys::Binding>& bindings) const
+        {
+            std::vector<dcp::hotkeys::Binding> active;
+
+            for (const dcp::hotkeys::Binding& binding : bindings) {
+                if (profileIndex(m_profiles, binding.profileName) >= 0)
+                    active.push_back(binding);
+            }
+
+            return active;
+        }
+
+        void registerHotkeys(
+            const std::vector<dcp::hotkeys::Binding>& bindings)
+        {
+            m_hotkeyManager.setBindings(
+                activeHotkeyBindings(bindings),
+                [this](const std::string& profileName) {
+                    slint::invoke_from_event_loop(
+                        [this, profileName] {
+                            if (!m_quitting)
+                                loadProfile(profileName);
+                        });
+                });
+        }
+
+        void activateHotkeys()
+        {
+            registerHotkeys(m_hotkeyBindings);
+        }
+
+        void selectHotkeyProfile(const std::string& profileName)
+        {
+            const int index = profileIndex(m_profiles, profileName);
+
+            if (index < 0) {
+                m_hotkeyProfileName.clear();
+                m_window->set_hotkey_profile_name({});
+                m_window->set_hotkey_profile_index(-1);
+                m_window->set_hotkey_text({});
+                return;
+            }
+
+            m_hotkeyProfileName = profileName;
+            m_window->set_hotkey_profile_name(toSharedString(profileName));
+            m_window->set_hotkey_profile_index(index);
+
+            const auto binding =
+            std::ranges::find_if(m_hotkeyBindings,
+                [&profileName](const dcp::hotkeys::Binding& item) {
+              return item.profileName == profileName;
+            });
+
+            const std::string hotkeyText = binding == m_hotkeyBindings.end()
+                ? std::string{} : dcp::hotkeys::Manager::keyName(binding->virtualKey);
+
+            m_window->set_hotkey_text(toSharedString(hotkeyText));
+        }
+
+        void assignHotkey(
+            const std::string& profileName,
+            const std::string& hotkeyText)
+        {
+            const unsigned int virtualKey =
+                dcp::hotkeys::Manager::keyCode(hotkeyText);
+
+            const auto existing = std::ranges::find_if(
+                m_hotkeyBindings,
+               [&profileName](const dcp::hotkeys::Binding& binding) {
+                   return binding.profileName == profileName;
+            });
+
+            if (existing == m_hotkeyBindings.end())
+                m_hotkeyBindings.push_back({profileName, virtualKey});
+            else
+                existing->virtualKey = virtualKey;
+
+            dcp::hotkeys::Manager::save(m_hotkeyBindings);
+            registerHotkeys(m_hotkeyBindings);
+            selectHotkeyProfile(profileName);
+        }
+
+        void removeHotkey(const std::string& profileName)
+        {
+            const auto newEnd = std::ranges::remove_if(
+                m_hotkeyBindings,
+               [&profileName](const dcp::hotkeys::Binding& binding) {
+                   return binding.profileName == profileName;
+               }).begin();
+
+            m_hotkeyBindings.erase(newEnd, m_hotkeyBindings.end());
+            dcp::hotkeys::Manager::save(m_hotkeyBindings);
+            registerHotkeys(m_hotkeyBindings);
+            selectHotkeyProfile(profileName);
+        }
+
         void requestQuit()
         {
             if (m_quitting)
@@ -555,17 +701,20 @@ namespace {
                 loadProfile(m_preferences.exitProfileName, false);
 
             savePreferences();
+            m_hotkeyManager.stop();
             slint::quit_event_loop();
         }
 
     };
 }
 
-int dcp::ui::run()
-{
-    if (!windows::acquireSingleInstance())
-        return SUCCESS;
+export namespace dcp::ui {
+    int run()
+    {
+        if (!windows::acquireSingleInstance())
+            return SUCCESS;
 
-    App app;
-    return app.run();
+        App app;
+        return app.run();
+    }
 }

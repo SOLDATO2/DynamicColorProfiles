@@ -59,7 +59,7 @@ namespace dcp::amd {
             int current);
 
 
-    export class DCP final : public ::dcp::DCP {
+    export class DCP final : public dcp::DCP {
         HMODULE m_amdApi = nullptr;
 
         MainControlCreateFn m_mainControlCreate = nullptr;
@@ -106,33 +106,33 @@ namespace dcp::amd {
         DCP(const DCP&) = delete;
         DCP& operator=(const DCP&) = delete;
 
-        [[nodiscard]] ::dcp::Backend backend() const noexcept override {
-            return ::dcp::Backend::Amd;
+        [[nodiscard]] Backend backend() const noexcept override {
+            return Backend::Amd;
         }
 
-        [[nodiscard]] ::dcp::Settings settings() const override {
+        [[nodiscard]] Settings settings() const override {
             return m_settings;
         }
 
-        [[nodiscard]] bool supports(::dcp::Setting setting) const noexcept override {
+        [[nodiscard]] bool supports(Setting setting) const noexcept override {
             switch (setting) {
-                case ::dcp::Setting::AmdBrightness:
-                case ::dcp::Setting::AmdContrast:
-                case ::dcp::Setting::AmdHue:
-                case ::dcp::Setting::AmdSaturation:
+                case Setting::AmdBrightness:
+                case Setting::AmdContrast:
+                case Setting::AmdHue:
+                case Setting::AmdSaturation:
                     return true;
-                case ::dcp::Setting::NvidiaBrightness:
-                case ::dcp::Setting::NvidiaContrast:
-                case ::dcp::Setting::NvidiaGamma:
-                case ::dcp::Setting::NvidiaVibrance:
-                case ::dcp::Setting::NvidiaHue:
+                case Setting::NvidiaBrightness:
+                case Setting::NvidiaContrast:
+                case Setting::NvidiaGamma:
+                case Setting::NvidiaVibrance:
+                case Setting::NvidiaHue:
                     return false;
             }
 
             return false;
         }
 
-        void applySettings(const ::dcp::Settings& settings) override {
+        void applySettings(const Settings& settings) override {
             const auto* amdSettings =
                 std::get_if<profile::AmdColorSettings>(&settings);
 
@@ -145,28 +145,28 @@ namespace dcp::amd {
             setSaturation(amdSettings->saturation);
         }
 
-        void set(::dcp::Setting setting, double value) override {
+        void set(Setting setting, double value) override {
             const int integerValue =
                 static_cast<int>(std::lround(value));
 
             switch (setting) {
-                case ::dcp::Setting::AmdBrightness:
+                case Setting::AmdBrightness:
                     setBrightness(integerValue);
                     return;
-                case ::dcp::Setting::AmdContrast:
+                case Setting::AmdContrast:
                     setContrast(integerValue);
                     return;
-                case ::dcp::Setting::AmdHue:
+                case Setting::AmdHue:
                     setHue(integerValue);
                     return;
-                case ::dcp::Setting::AmdSaturation:
+                case Setting::AmdSaturation:
                     setSaturation(integerValue);
                     return;
-                case ::dcp::Setting::NvidiaBrightness:
-                case ::dcp::Setting::NvidiaContrast:
-                case ::dcp::Setting::NvidiaGamma:
-                case ::dcp::Setting::NvidiaVibrance:
-                case ::dcp::Setting::NvidiaHue:
+                case Setting::NvidiaBrightness:
+                case Setting::NvidiaContrast:
+                case Setting::NvidiaGamma:
+                case Setting::NvidiaVibrance:
+                case Setting::NvidiaHue:
                     break;
             }
 
@@ -301,11 +301,6 @@ namespace dcp::amd {
         template<typename T>
         T resolve(const char* functionName) {
             auto address = GetProcAddress(m_amdApi, functionName);
-
-            if (!address) {
-                throw std::runtime_error(
-                    std::string("ADL function not found: ") + functionName);
-            }
 
             return reinterpret_cast<T>(address);
         }

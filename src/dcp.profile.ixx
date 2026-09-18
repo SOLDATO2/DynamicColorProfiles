@@ -239,7 +239,7 @@ export namespace dcp::profile {
                 }
             }
 
-            std::sort(userProfiles.begin(), userProfiles.end());
+            std::ranges::sort(userProfiles);
 
             std::vector<std::string> profiles;
             profiles.reserve(userProfiles.size() + 1);
@@ -272,12 +272,12 @@ export namespace dcp::profile {
                 }
             }
 
-            std::sort(userProfiles.begin(), userProfiles.end());
+            std::ranges::sort(userProfiles);
             userProfiles.erase(
-                std::unique(userProfiles.begin(), userProfiles.end()),
+                std::ranges::unique(userProfiles).begin(),
                 userProfiles.end());
             userProfiles.erase(
-                std::unique(userProfiles.begin(), userProfiles.end()),
+                std::ranges::unique(userProfiles).begin(),
                 userProfiles.end());
 
             std::vector<std::string> profiles;
@@ -292,8 +292,7 @@ export namespace dcp::profile {
             if (isDefaultProfileName(name))
                 return defaultNvidiaSettings();
 
-            const std::optional<NvidiaProfile> profile =
-                loadNvidiaProfile(name);
+            const std::optional<NvidiaProfile> profile = loadNvidiaProfile(name);
 
             if (!profile || profile->settings.empty())
                 return std::nullopt;
@@ -568,17 +567,16 @@ export namespace dcp::profile {
 
         static std::string normalizeName(std::string name) {
             const auto first =
-                std::find_if_not(
-                    name.begin(),
-                    name.end(),
-                    [](const unsigned char character) {
-                        return std::isspace(character) != 0;
-                    });
+                std::ranges::find_if_not(name,
+                 [](const unsigned char character) {
+                     return std::isspace(character) != 0;
+                 });
 
             if (first == name.end())
                 return {};
 
-            const auto last = std::find_if_not( name.rbegin(), name.rend(),
+            //ranges
+            const auto last = std::ranges::find_if_not(name.rbegin(), name.rend(),
                     [](const unsigned char character) {
                         return std::isspace(character) != 0;
                     }).base();

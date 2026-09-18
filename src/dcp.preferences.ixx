@@ -44,20 +44,16 @@ namespace {
     std::string trim(std::string_view value)
     {
         const auto first =
-            std::find_if_not(
-                value.begin(),
-                value.end(),
-                [](const unsigned char character) {
-                    return std::isspace(character) != 0;
-                });
+            std::ranges::find_if_not(value,
+             [](const unsigned char character) {
+                 return std::isspace(character) != 0;
+            });
 
         if (first == value.end())
             return {};
 
         const auto last =
-            std::find_if_not(
-                value.rbegin(),
-                value.rend(),
+            std::ranges::find_if_not( value.rbegin(), value.rend(),
                 [](const unsigned char character) {
                     return std::isspace(character) != 0;
                 }).base();
